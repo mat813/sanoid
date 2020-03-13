@@ -26,6 +26,7 @@ GetOptions(\%args, "no-command-checks", "monitor-version", "compress=s", "dumpsn
                    "debug", "quiet", "no-stream", "no-sync-snap", "no-resume", "exclude=s@", "skip-parent", "identifier=s",
                    "no-clone-handling", "no-privilege-elevation", "force-delete", "no-clone-rollback", "no-rollback",
                    "create-bookmark", "pv-options=s" => \$pvoptions, "keep-sync-snap", "preserve-recordsize",
+                   "push-snap-removal",
                    "mbuffer-size=s" => \$mbuffer_size) or pod2usage(2);
 
 my %compressargs = %{compressargset($args{'compress'} || 'default')}; # Can't be done with GetOptions arg, as default still needs to be set
@@ -862,6 +863,20 @@ sub syncdataset {
 			# prune obsolete sync snaps on source and target (only if this run created ones).
 			pruneoldsyncsnaps($sourcehost,$sourcefs,$newsyncsnap,$sourceisroot,keys %{ $snaps{'source'}});
 			pruneoldsyncsnaps($targethost,$targetfs,$newsyncsnap,$targetisroot,keys %{ $snaps{'target'}});
+		}
+	}
+
+	if (defined $args{'push-snap-removal'}) {
+		foreach my $snap ( sort { $snaps{'target'}{$a}{'creation'}<=>$snaps{'target'}{$b}{'creation'} } keys %{ $snaps{'target'} }) {
+			if (!exists $snaps{'source'}{$snap}) {
+				if ($targethost ne '') {
+					if ($debug) { print "$sshcmd $targethost $targetsudocmd $zfscmd destroy $targetfsescaped\@$snap\n"; }
+					system ("$sshcmd $targethost " . escapeshellparam("$targetsudocmd $zfscmd destroy $targetfsescaped\@$snap"));
+				} else {
+					if ($debug) { print "$targetsudocmd $zfscmd destroy $targetfsescaped\@$snap\n"; }
+					system ("$targetsudocmd $zfscmd destroy $targetfsescaped\@$snap");
+				}
+			}
 		}
 	}
 
@@ -1973,6 +1988,7 @@ Options:
   --keep-sync-snap      Don't destroy created sync snapshots
   --create-bookmark     Creates a zfs bookmark for the newest snapshot on the source after replication succeeds (only works with --no-sync-snap)
   --preserve-recordsize Preserves the recordsize on initial sends to the target
+  --push-snap-removal   Remove snapshots on the target that do not exist on the source any more
   --no-clone-rollback   Does not rollback clones on target
   --no-rollback         Does not rollback clones or snapshots on target (it probably requires a readonly target)
   --exclude=REGEX       Exclude specific datasets which match the given regular expression. Can be specified multiple times
